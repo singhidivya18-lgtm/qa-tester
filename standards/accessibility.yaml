@@ -1,0 +1,48 @@
+rules:
+  - id: a11y_001
+    name: page_has_title
+    severity: high
+    description: "Page must have a descriptive title element"
+    expected: "The page title describes the current screen"
+    test_action: "Check the page title after navigation"
+    expected_result: "Page title is non-empty and descriptive"
+
+  - id: a11y_002
+    name: heading_hierarchy
+    severity: medium
+    description: "Headings must follow logical hierarchy (h1 > h2 > h3)"
+    expected: "No heading levels are skipped"
+    test_action: "Check heading elements on the page"
+    expected_result: "Headings follow h1 > h2 > h3 order without skipping"
+
+  - id: a11y_003
+    name: images_have_alt
+    severity: high
+    description: "All images must have alt attributes"
+    expected: "Every img element has a non-empty alt attribute"
+    test_action: "Find all img elements on the page"
+    expected_result: "All images have alt text"
+
+  - id: a11y_004
+    name: focusable_elements
+    severity: high
+    description: "Interactive elements must be keyboard focusable"
+    expected: "All buttons and links are reachable via Tab key"
+    test_action: "Press Tab repeatedly through the page"
+    expected_result: "Focus moves through all interactive elements"
+
+  - id: a11y_005
+    name: color_contrast
+    severity: medium
+    description: "Text must have sufficient color contrast (4.5:1 ratio)"
+    expected: "Text is readable against its background"
+    test_action: "Check text elements for contrast"
+    expected_result: "Text has adequate contrast ratio"
+
+  - id: a11y_006
+    name: aria_labels
+    severity: medium
+    description: "Icon-only buttons and controls must have aria-label"
+    expected: "Buttons without text have aria-label"
+    test_action: "Find buttons with only icons (no text children)"
+    expected_result: "Icon buttons have aria-label or aria-labelledby"

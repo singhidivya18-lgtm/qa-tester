@@ -1,0 +1,32 @@
+rules:
+  - id: ux_001
+    name: error_boundary
+    severity: critical
+    description: "App must not crash on invalid routes or bad state"
+    expected: "Navigating to invalid route shows a fallback UI"
+    test_action: "Navigate to a non-existent route like /asdfghjkl"
+    expected_result: "A 404 or error page is displayed, not a crash"
+
+  - id: ux_002
+    name: responsive_layout
+    severity: medium
+    description: "Layout must not overflow on mobile viewport (375px)"
+    expected: "Content fits within mobile viewport without horizontal scroll"
+    test_action: "Resize browser to 375px width and check layout"
+    expected_result: "No horizontal scrollbar, content is readable"
+
+  - id: ux_003
+    name: loading_states
+    severity: medium
+    description: "Async operations must show loading indicators"
+    expected: "Loading spinner/skeleton appears during data fetches"
+    test_action: "Navigate to a screen that loads data"
+    expected_result: "A loading indicator is visible before content appears"
+
+  - id: ux_004
+    name: empty_states
+    severity: low
+    description: "Screens with no data should show empty state message"
+    expected: "An empty state message is shown when there is no data"
+    test_action: "Navigate to a list screen with no items"
+    expected_result: "A user-friendly empty state message appears"

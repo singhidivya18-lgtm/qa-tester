@@ -1,0 +1,24 @@
+rules:
+  - id: err_001
+    name: network_error_display
+    severity: high
+    description: "Network errors must be shown to the user"
+    expected: "A visible error message appears when API calls fail"
+    test_action: "Block network requests and trigger a data fetch"
+    expected_result: "Error message is displayed to the user"
+
+  - id: err_002
+    name: retry_mechanism
+    severity: medium
+    description: "Failed operations should offer a retry option"
+    expected: "A retry button is available after errors"
+    test_action: "Trigger a network error and check for retry button"
+    expected_result: "A retry button or link is present"
+
+  - id: err_003
+    name: form_submission_error
+    severity: high
+    description: "Form submission errors must be clearly communicated"
+    expected: "User sees specific error message on submission failure"
+    test_action: "Submit form when backend returns an error"
+    expected_result: "Error message explains what went wrong"

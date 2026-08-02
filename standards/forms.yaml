@@ -1,0 +1,40 @@
+rules:
+  - id: form_001
+    name: required_field_validation
+    severity: critical
+    description: "Required fields must show validation error when empty"
+    expected: "Submitting with empty required fields shows error messages"
+    test_action: "Click submit without filling any required fields"
+    expected_result: "Error messages appear below each required field"
+
+  - id: form_002
+    name: field_type_validation
+    severity: high
+    description: "Fields must validate input type (email, number, etc.)"
+    expected: "Invalid input types show appropriate error messages"
+    test_action: "Type 'abc' in an email field, 'xyz' in a number field"
+    expected_result: "Type-specific validation errors appear"
+
+  - id: form_003
+    name: form_submit_feedback
+    severity: high
+    description: "Form submission must show loading/success/error state"
+    expected: "User receives clear feedback after form submission"
+    test_action: "Fill all fields correctly and submit"
+    expected_result: "Loading state appears, then success or error message"
+
+  - id: form_004
+    name: form_reset
+    severity: medium
+    description: "Form should retain user input after failed submission"
+    expected: "After failed submission, form retains user input"
+    test_action: "Submit with validation error, then check field values"
+    expected_result: "Previously entered values are preserved in fields"
+
+  - id: form_005
+    name: keyboard_submit
+    severity: medium
+    description: "Form should be submittable via Enter key"
+    expected: "Pressing Enter in a field submits the form"
+    test_action: "Fill form and press Enter in the last field"
+    expected_result: "Form submits just like clicking the submit button"

@@ -1,0 +1,31 @@
+# Secrets — NEVER commit
+.env
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# ADK / MCP runtime state
+.adk/
+.playwright-mcp/
+state/
+
+# Logs
+*.log
+adk_error.log
+adk_output.log
+server.log
+server_error.log
+
+# Runtime artifacts: screenshots, reports, debug dumps
+*.png
+*.docx
+*.doc
+~$*
+docx_preview.txt
+network_all.txt
+*.network.txt
+*_network.txt
+*snapshot.md
+overview-initial.yml

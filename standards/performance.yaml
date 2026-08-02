@@ -1,0 +1,32 @@
+rules:
+  - id: perf_001
+    name: initial_load_time
+    severity: high
+    description: "Initial page load must complete within 5 seconds"
+    expected: "Page content is visible within 5 seconds"
+    test_action: "Navigate to the screen from cold start"
+    expected_result: "Main content is rendered within 5 seconds"
+
+  - id: perf_002
+    name: no_console_errors
+    severity: high
+    description: "No JavaScript errors in browser console"
+    expected: "Console shows no error-level messages"
+    test_action: "Check browser console after page load"
+    expected_result: "No errors in console output"
+
+  - id: perf_003
+    name: no_large_images
+    severity: medium
+    description: "Images should not be excessively large (500KB)"
+    expected: "All images are optimized for web"
+    test_action: "Check network requests for image sizes"
+    expected_result: "No image exceeds 500KB"
+
+  - id: perf_004
+    name: lazy_loading
+    severity: low
+    description: "Below-fold images should use lazy loading"
+    expected: "Images outside viewport have loading='lazy'"
+    test_action: "Check img elements for loading attribute"
+    expected_result: "Off-screen images have lazy loading"

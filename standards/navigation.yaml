@@ -1,0 +1,40 @@
+rules:
+  - id: nav_001
+    name: all_links_navigable
+    severity: high
+    description: "Every internal link must navigate to a valid route"
+    expected: "Clicking any link navigates to the correct page without errors"
+    test_action: "Click each internal link on the screen"
+    expected_result: "Page loads correctly at the target URL"
+
+  - id: nav_002
+    name: back_button_works
+    severity: high
+    description: "Browser back button must return to previous screen"
+    expected: "After navigating forward, back button returns to previous screen"
+    test_action: "Navigate to a linked screen, then click browser back"
+    expected_result: "URL and content return to the previous screen"
+
+  - id: nav_003
+    name: deep_link_access
+    severity: medium
+    description: "Direct URL access must load the correct screen"
+    expected: "Entering the route URL directly loads the correct screen"
+    test_action: "Navigate directly to the route URL"
+    expected_result: "Screen loads correctly with proper content"
+
+  - id: nav_004
+    name: active_route_highlight
+    severity: low
+    description: "Current route should be visually indicated in navigation"
+    expected: "The nav item for the current route has active styling"
+    test_action: "Navigate to the route and check nav element"
+    expected_result: "Current nav item has aria-current or active class"
+
+  - id: nav_005
+    name: loading_state_navigation
+    severity: medium
+    description: "Navigation should show loading state for async routes"
+    expected: "A loading indicator appears during route transition"
+    test_action: "Click a link to a lazy-loaded route"
+    expected_result: "Loading spinner or skeleton appears before content"
