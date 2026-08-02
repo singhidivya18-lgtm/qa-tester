@@ -481,8 +481,10 @@ async def pipeline_main(repo_url, site_url, test_file_path=None, max_screens=MAX
                 overall = "BLOCKED"
             elif failed > 0:
                 overall = "FAIL"
-            elif blocked > 0:
+            elif passed == 0:
                 overall = "BLOCKED"
+            elif blocked > 0:
+                overall = "PASS_WITH_CAVEATS"
             else:
                 overall = "PASS"
             print(f"  Verdicts: PASS={passed}, FAIL={failed}, BLOCKED={blocked}, Overall={overall}")
@@ -603,11 +605,12 @@ async def pipeline_main(repo_url, site_url, test_file_path=None, max_screens=MAX
     # Summary
     total = len(all_screen_results)
     p = sum(1 for r in all_screen_results if r["overall"] == "PASS")
+    c = sum(1 for r in all_screen_results if r["overall"] == "PASS_WITH_CAVEATS")
     f = sum(1 for r in all_screen_results if r["overall"] == "FAIL")
-    b = total - p - f
+    b = total - p - c - f
     total_elapsed = time.monotonic() - pipeline_start
     print(f"\n{'=' * 60}")
-    print(f"SUMMARY: {total} screens | PASS: {p} | FAIL: {f} | BLOCKED: {b}")
+    print(f"SUMMARY: {total} screens | PASS: {p} | PASS_WITH_CAVEATS: {c} | FAIL: {f} | BLOCKED: {b}")
     print(f"Total pipeline time: {total_elapsed / 60:.1f} minutes")
     if docx_path:
         print(f"DOCX Report: {docx_path}")
