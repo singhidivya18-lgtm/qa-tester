@@ -13,6 +13,7 @@ import asyncio
 import json
 import sys
 import os
+import time
 
 from google.adk.workflow import Workflow, FunctionNode, START
 from google.adk.runners import Runner
@@ -20,11 +21,10 @@ from google.adk.sessions import InMemorySessionService
 from google.adk.artifacts import InMemoryArtifactService
 from google.genai import types
 
-from .config import LLM_MODEL, TEST_FILE_PATH, SITE_EMAIL, SITE_PASSWORD, SITE_PASSWORD_FALLBACK
+from .config import LLM_MODEL, TEST_FILE_PATH, SITE_EMAIL, SITE_PASSWORD, SITE_PASSWORD_FALLBACK, MAX_CHECKS_PER_SCREEN
 from .prompts.mapper import MAPPER_PROMPT
 from .prompts.contract import CONTRACT_PROMPT
 from .prompts.navigator import NAVIGATOR_PROMPT
-from .prompts.judge import JUDGE_PROMPT
 from .prompts.report import REPORT_PROMPT
 from .tools.repo_analyzer import clone_repo, grep_routes, list_src
 from .tools.route_parser import parse_route_config
@@ -85,15 +85,10 @@ def build_navigator_agent():
                 ],
             )
         ],
-        output_key="test_evidence", mode="chat", timeout=1800,
-    )
-
-def build_judge_agent():
-    from google.adk.agents import Agent
-    from .tools.evidence_tools import record_verdict
-    return Agent(
-        name="judge", model=LLM_MODEL, instruction=JUDGE_PROMPT,
-        tools=[record_verdict], output_key="judge_verdicts", mode="chat", timeout=600,
+        # NOTE: no output_key here — output_key would overwrite the state key
+        # "test_evidence" with the agent's final text response, clobbering the
+        # evidence list that record_evidence() persists during the run.
+        mode="chat", timeout=1800,
     )
 
 def build_report_agent():
@@ -111,6 +106,7 @@ async def run_agent(runner, session_id, user_id, message, agent_name="agent", ti
         role="user", parts=[types.Part.from_text(text=message)]
     )
     events = []
+    start = time.monotonic()
     try:
         async def _run():
             async for event in runner.run_async(
@@ -125,7 +121,23 @@ async def run_agent(runner, session_id, user_id, message, agent_name="agent", ti
         if len(err_str) > 200:
             err_str = err_str[:200] + "..."
         print(f"  [ERROR] {agent_name} failed: {err_str}")
+    elapsed = time.monotonic() - start
+    print(f"  [TIME] {agent_name} took {elapsed:.1f}s ({len(events)} events, {count_tool_calls(events)} tool calls)")
     return events
+
+
+def count_tool_calls(events):
+    """Count function/tool calls made by the agent across all events."""
+    n = 0
+    for event in events:
+        if not event.content or not event.content.parts:
+            continue
+        for part in event.content.parts:
+            if getattr(part, "function_call", None) is not None:
+                n += 1
+            elif getattr(part, "tool_call", None) is not None:
+                n += 1
+    return n
 
 
 def extract_text(events):
@@ -232,6 +244,28 @@ def screenshots_as_evidence(screen_id):
     return evidence
 
 
+def evidence_to_verdicts(evidence, screen_id):
+    """Convert navigator-recorded evidence into the verdict shape used by the report.
+
+    The judge agent was dropped: the navigator's own record_evidence() calls
+    (PASS/FAIL/BLOCKED per check) are now the final verdicts, so no second
+    LLM pass is needed.
+    """
+    verdicts = []
+    if not isinstance(evidence, list):
+        return verdicts
+    for item in evidence:
+        if not isinstance(item, dict):
+            continue
+        verdicts.append({
+            "check_id": item.get("check_id", ""),
+            "verdict": item.get("status", "BLOCKED"),
+            "reason": item.get("note", ""),
+            "screen_id": screen_id,
+        })
+    return verdicts
+
+
 async def pipeline_main(repo_url, site_url, test_file_path=None, max_screens=MAX_SCREENS):
     """Run the full QA pipeline deterministically."""
     # Windows consoles default to a legacy codec that crashes on emoji/unicode.
@@ -251,7 +285,9 @@ async def pipeline_main(repo_url, site_url, test_file_path=None, max_screens=MAX
     print(f"Site: {site_url}")
     print(f"Test file: {test_file_path or 'None'}")
     print(f"Max screens: {max_screens}")
+    print(f"Max checks per screen: {MAX_CHECKS_PER_SCREEN}")
     print()
+    pipeline_start = time.monotonic()
 
     # Clear stale screenshots from previous runs
     if os.path.isdir(SCREENSHOT_DIR):
@@ -335,11 +371,6 @@ async def pipeline_main(repo_url, site_url, test_file_path=None, max_screens=MAX
         agent=nav, app_name="qa_pipeline",
         session_service=session_service, artifact_service=artifact_service,
     )
-    judge = build_judge_agent()
-    judge_runner = Runner(
-        agent=judge, app_name="qa_pipeline",
-        session_service=session_service, artifact_service=artifact_service,
-    )
 
     try:
         # ─── LOGIN STEP (once, so login state persists for all screens) ──
@@ -383,9 +414,11 @@ async def pipeline_main(repo_url, site_url, test_file_path=None, max_screens=MAX
 
             screen_id = contract_entry.get("screen_id", f"screen_{i}")
             route = contract_entry.get("route", "/")
-            checks = contract_entry.get("checks", [])
+            all_checks = contract_entry.get("checks", [])
+            # Trim to the most severe checks (contracts are pre-sorted critical-first)
+            checks = all_checks[:MAX_CHECKS_PER_SCREEN]
             print(f"\n  --- Screen {i}: {screen_id} ({route}) ---")
-            print(f"  Checks: {len(checks)}")
+            print(f"  Checks: {len(checks)} of {len(all_checks)} (trimmed to {MAX_CHECKS_PER_SCREEN})")
 
             # Fresh session per screen — only the current screen's contract is
             # passed so context stays small and never exceeds the model limit.
@@ -397,7 +430,7 @@ async def pipeline_main(repo_url, site_url, test_file_path=None, max_screens=MAX
                 },
             )
             screen_sid = screen_session.id
-            current_contract = [contract_entry]
+            current_contract = [{**contract_entry, "checks": checks}]
 
             nav_msg = (
                 f"Test screen {i} at {site_url}{route}\n"
@@ -411,8 +444,8 @@ async def pipeline_main(repo_url, site_url, test_file_path=None, max_screens=MAX
                 f"If the password {SITE_PASSWORD} fails, try this fallback password: {SITE_PASSWORD_FALLBACK}\n"
                 f"Test file path: {test_file_path or ''}"
             )
-            events = await run_agent(nav_runner, screen_sid, user_id, nav_msg, "navigator",
-                                     timeout_seconds=1800)
+            events = await run_agent(nav_runner, screen_sid, user_id, nav_msg,
+                                     f"navigator_screen_{i}", timeout_seconds=1800)
             screen_state = await get_fresh_session_state(session_service, screen_sid, user_id)
             test_evidence = screen_state.get("test_evidence")
             if not test_evidence:
@@ -422,39 +455,24 @@ async def pipeline_main(repo_url, site_url, test_file_path=None, max_screens=MAX
                 test_evidence = test_evidence.get("evidence") or test_evidence.get("test_evidence") or []
             if not test_evidence:
                 test_evidence = screenshots_as_evidence(screen_id)
+
+            # Verdicts come straight from the navigator's recorded evidence —
+            # no judge agent, no second LLM pass.
             if not test_evidence:
                 print(f"  [WARN] Navigator produced no evidence for {screen_id}.")
-                print("  [SKIP] Judge not called (nothing to judge) — screen marked BLOCKED.")
-                verdicts = []
+                print("  [SKIP] No evidence — marking all checks BLOCKED.")
+                verdicts = [{
+                    "check_id": c.get("check_id", ""), "verdict": "BLOCKED",
+                    "reason": "No evidence recorded by navigator", "screen_id": screen_id,
+                } for c in checks]
             else:
-                # Judge gets its own fresh session so it doesn't inherit the
-                # navigator's browser transcript (huge snapshots) in its context.
-                judge_session = await session_service.create_session(
-                    app_name="qa_pipeline", user_id=user_id,
-                    state={
-                        "repo_url": repo_url, "site_url": site_url,
-                        "phase": "judge_screen", "current_screen_index": i,
-                    },
-                )
-                judge_sid = judge_session.id
-                judge_msg = (
-                    f"Judge screen {i}\n"
-                    f"Contracts: {json.dumps(current_contract)}\n"
-                    f"Test evidence: {json.dumps(test_evidence)}\n"
-                    f"Current screen index: 0"
-                )
-                events = await run_agent(judge_runner, judge_sid, user_id, judge_msg, "judge")
-                judge_state = await get_fresh_session_state(session_service, judge_sid, user_id)
-                verdicts = judge_state.get("judge_verdicts")
+                verdicts = evidence_to_verdicts(test_evidence, screen_id)
                 if not verdicts:
-                    verdicts = extract_json_from_events(events)
-                verdicts = normalize_json_output(verdicts)
-                if isinstance(verdicts, dict):
-                    verdicts = verdicts.get("verdicts") or []
-
-                if not verdicts:
-                    print(f"  [WARN] Judge produced no verdicts for {screen_id}.")
-                    verdicts = []
+                    print(f"  [WARN] No usable evidence entries for {screen_id} — marking all checks BLOCKED.")
+                    verdicts = [{
+                        "check_id": c.get("check_id", ""), "verdict": "BLOCKED",
+                        "reason": "Evidence entries were not usable", "screen_id": screen_id,
+                    } for c in checks]
 
             passed = sum(1 for v in verdicts if isinstance(v, dict) and v.get("verdict") == "PASS")
             failed = sum(1 for v in verdicts if isinstance(v, dict) and v.get("verdict") == "FAIL")
@@ -511,7 +529,7 @@ async def pipeline_main(repo_url, site_url, test_file_path=None, max_screens=MAX
             f"status='BLOCKED', note='No registration/signup page found', screenshot_path='')."
         )
         reg_events = await run_agent(nav_runner, reg_sid, user_id, reg_msg,
-                                     "navigator_register", timeout_seconds=420)
+                                     "navigator_register", timeout_seconds=300)
         reg_state = await get_fresh_session_state(session_service, reg_sid, user_id)
         reg_evidence = reg_state.get("test_evidence")
         if not reg_evidence:
@@ -587,8 +605,10 @@ async def pipeline_main(repo_url, site_url, test_file_path=None, max_screens=MAX
     p = sum(1 for r in all_screen_results if r["overall"] == "PASS")
     f = sum(1 for r in all_screen_results if r["overall"] == "FAIL")
     b = total - p - f
+    total_elapsed = time.monotonic() - pipeline_start
     print(f"\n{'=' * 60}")
     print(f"SUMMARY: {total} screens | PASS: {p} | FAIL: {f} | BLOCKED: {b}")
+    print(f"Total pipeline time: {total_elapsed / 60:.1f} minutes")
     if docx_path:
         print(f"DOCX Report: {docx_path}")
     print(f"{'=' * 60}")

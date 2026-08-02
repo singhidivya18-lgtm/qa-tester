@@ -14,6 +14,7 @@ SITE_PASSWORD_FALLBACK = os.getenv("SITE_PASSWORD_FALLBACK", "director_password"
 
 MAX_RETRIES_PER_CHECK = 3
 MAX_LLM_CALLS_PER_NAVIGATOR = 50
+MAX_CHECKS_PER_SCREEN = 8
 MAX_TIME_PER_SCREEN_SECONDS = 300
 MAX_TOTAL_COST_USD = 2.0
 TEST_FILE_PATH = r"C:\Users\DIVYA SINGHI\OneDrive\Desktop\test for tester agent call q\(Audio) i love u joe vid.m4a"

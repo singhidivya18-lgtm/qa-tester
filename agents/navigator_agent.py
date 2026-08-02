@@ -38,7 +38,8 @@ navigator_agent = Agent(
             ]
         )
     ],
-    output_key="test_evidence",
+    # NOTE: no output_key — it would overwrite state key "test_evidence" with
+    # the agent's final text, clobbering the list record_evidence() persists.
     mode="chat",
     timeout=1800,
 )

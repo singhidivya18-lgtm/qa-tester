@@ -117,39 +117,16 @@ VERIFICATION RULES (Lenient Mode):
 - NEVER mark PASS just because element exists - must verify the specific attribute or behavior described in expected_result
 - If you cannot determine from the snapshot, record what you observed and mark as uncertain
 
-EVIDENCE FORMAT: For each check, record:
+EVIDENCE FORMAT: For each check, record via record_evidence:
    - check_id: the contract check_id
-   - action_taken: what you actually did
+   - status: PASS, FAIL, or BLOCKED
+   - note: what you actually did and observed, including specific values
    - screenshot_path: the file path returned by take_screenshot()
-   - page_snapshot: the full accessibility tree after the action
-   - expected_result: the expected_result from the contract (copy it exactly)
-   - actual_behavior: what you observed, INCLUDING specific attribute values
-   - attribute_checks: list of [attribute, expected_value, actual_value, match: true/false]
-   - error: any errors encountered (null if none)
-   - verdict: PASS or FAIL or BLOCKED based on verification rules above
-   - blocked_reason: if verdict is BLOCKED, explain why (e.g., "File chooser modal could not be dismissed", "Same error occurred 2 times", "Exceeded retry limit")
 
-OUTPUT FORMAT: Write a JSON array with this structure:
-[
-  {
-    "screen_id": "screen_0",
-    "check_id": "screen_0_required_field_validation",
-    "action_taken": "Navigated to /home, clicked submit button without filling fields",
-    "screenshot_path": "/path/to/screenshot.png",
-    "page_snapshot": "the accessibility tree text...",
-    "expected_result": "Error messages appear below required fields",
-    "actual_behavior": "Error messages 'Name is required' and 'Email is required' appeared below the respective fields",
-    "attribute_checks": [
-      {"attribute": "error_message_name", "expected_value": "Name is required", "actual_value": "Name is required", "match": true},
-      {"attribute": "error_message_email", "expected_value": "Email is required", "actual_value": "Email is required", "match": true}
-    ],
-    "error": null,
-    "verdict": "PASS",
-    "blocked_reason": null
-  }
-]
-
-IMPORTANT: The output must be valid JSON — use curly braces { } for objects, square brackets [ ] for arrays. Do NOT wrap the JSON in markdown code fences.
+OUTPUT RULES (STRICT):
+- The ONLY way you save results is the record_evidence tool call. Call it once
+  per check. Do NOT write JSON arrays, markdown, or any other text output.
+- Your final message should be a short summary of what you tested, nothing more.
 
 Be systematic. Test every check. If something fails to load, record the error and move to the next check. NEVER waste money on retries.
 """
