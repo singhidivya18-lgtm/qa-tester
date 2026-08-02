@@ -376,48 +376,6 @@ async def pipeline_main(repo_url, site_url, test_file_path=None, max_screens=MAX
         else:
             print("  [LOGIN] Login step produced no confirmation — continuing anyway.")
 
-        # ─── REGISTRATION TEST (optional) ───────────────────────────────
-        # Attempt to create a brand-new account to verify the signup flow.
-        print("  [REGISTER] Testing account creation...")
-        reg_session = await session_service.create_session(
-            app_name="qa_pipeline", user_id=user_id,
-            state={"site_url": site_url, "phase": "register_test"},
-        )
-        reg_sid = reg_session.id
-        import time as _time
-        test_email = f"qatester{int(_time.time())}@calliq.com"
-        reg_msg = (
-            f"Test account registration on {site_url}.\n"
-            f"Use this brand-new test email: {test_email}\n"
-            f"Use this password for the new account: {SITE_PASSWORD}\n\n"
-            f"Steps:\n"
-            f"1. Navigate to {site_url}.\n"
-            f"2. Look for a 'Sign up' / 'Register' / 'Create account' link or button on the page "
-            f"(try routes like /register, /signup, /sign-up if needed).\n"
-            f"3. If a registration form is found: fill in the test email and password (and any "
-            f"required name/role fields with sensible test values), then submit.\n"
-            f"4. Verify the result: an account created / success message / redirected to a logged-in page.\n"
-            f"5. Take a screenshot of the result.\n"
-            f"6. Call record_evidence(check_id='account_registration', "
-            f"status='PASS' if registration succeeded else 'FAIL', "
-            f"note='describe what happened (form found? success message? error?)', "
-            f"screenshot_path='<the screenshot path>').\n"
-            f"If no registration link or form exists, call record_evidence(check_id='account_registration', "
-            f"status='BLOCKED', note='No registration/signup page found', screenshot_path='')."
-        )
-        reg_events = await run_agent(nav_runner, reg_sid, user_id, reg_msg,
-                                     "navigator_register", timeout_seconds=420)
-        reg_state = await get_fresh_session_state(session_service, reg_sid, user_id)
-        reg_evidence = reg_state.get("test_evidence")
-        if not reg_evidence:
-            reg_evidence = extract_json_from_events(reg_events)
-        if reg_evidence:
-            for item in reg_evidence if isinstance(reg_evidence, list) else [reg_evidence]:
-                if isinstance(item, dict):
-                    print(f"  [REGISTER] {item.get('check_id')}: {item.get('status')} — {item.get('note', '')[:80]}")
-        else:
-            print("  [REGISTER] Registration step produced no confirmation — continuing anyway.")
-
         for i in range(num_to_test):
             contract_entry = contracts[i] if i < len(contracts) else None
             if not contract_entry:
@@ -445,6 +403,9 @@ async def pipeline_main(repo_url, site_url, test_file_path=None, max_screens=MAX
                 f"Test screen {i} at {site_url}{route}\n"
                 f"Contracts: {json.dumps(current_contract)}\n"
                 f"Current screen index: 0\n"
+                f"You are ALREADY logged in to the site as {SITE_EMAIL} — the browser "
+                f"session is shared and authenticated. Do NOT log in again unless the "
+                f"page clearly shows a login form; if it does, log in once with:\n"
                 f"Site login email: {SITE_EMAIL}\n"
                 f"Site login password: {SITE_PASSWORD}\n"
                 f"If the password {SITE_PASSWORD} fails, try this fallback password: {SITE_PASSWORD_FALLBACK}\n"
@@ -516,6 +477,52 @@ async def pipeline_main(repo_url, site_url, test_file_path=None, max_screens=MAX
             })
 
             await asyncio.sleep(3)
+
+        # ─── REGISTRATION TEST (optional) ───────────────────────────────
+        # Runs AFTER the screen loop: the shared browser must stay logged in
+        # as the main account for all screens. Signup flows typically log the
+        # browser into the NEW account — if run mid-pipeline, every screen
+        # after it would land on the login page. At the end, it's harmless.
+        print("  [REGISTER] Testing account creation...")
+        reg_session = await session_service.create_session(
+            app_name="qa_pipeline", user_id=user_id,
+            state={"site_url": site_url, "phase": "register_test"},
+        )
+        reg_sid = reg_session.id
+        import time as _time
+        test_email = f"qatester{int(_time.time())}@calliq.com"
+        reg_msg = (
+            f"Test account registration on {site_url}.\n"
+            f"Use this brand-new test email: {test_email}\n"
+            f"Use this password for the new account: {SITE_PASSWORD}\n\n"
+            f"Steps:\n"
+            f"1. Navigate to {site_url}.\n"
+            f"2. Look for a 'Sign up' / 'Register' / 'Create account' link or button on the page "
+            f"(try routes like /register, /signup, /sign-up if needed).\n"
+            f"3. If a registration form is found: fill in the test email and password (and any "
+            f"required name/role fields with sensible test values), then submit.\n"
+            f"4. Verify the result: an account created / success message / redirected to a logged-in page.\n"
+            f"5. Take a screenshot of the result.\n"
+            f"6. Call record_evidence(check_id='account_registration', "
+            f"status='PASS' if registration succeeded else 'FAIL', "
+            f"note='describe what happened (form found? success message? error?)', "
+            f"screenshot_path='<the screenshot path>').\n"
+            f"If no registration link or form exists, call record_evidence(check_id='account_registration', "
+            f"status='BLOCKED', note='No registration/signup page found', screenshot_path='')."
+        )
+        reg_events = await run_agent(nav_runner, reg_sid, user_id, reg_msg,
+                                     "navigator_register", timeout_seconds=420)
+        reg_state = await get_fresh_session_state(session_service, reg_sid, user_id)
+        reg_evidence = reg_state.get("test_evidence")
+        if not reg_evidence:
+            reg_evidence = extract_json_from_events(reg_events)
+        if reg_evidence:
+            for item in reg_evidence if isinstance(reg_evidence, list) else [reg_evidence]:
+                if isinstance(item, dict):
+                    print(f"  [REGISTER] {item.get('check_id')}: {item.get('status')} — {item.get('note', '')[:80]}")
+        else:
+            print("  [REGISTER] Registration step produced no confirmation — continuing anyway.")
+
     finally:
         stop_browser()
 

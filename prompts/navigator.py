@@ -151,14 +151,5 @@ OUTPUT FORMAT: Write a JSON array with this structure:
 
 IMPORTANT: The output must be valid JSON — use curly braces { } for objects, square brackets [ ] for arrays. Do NOT wrap the JSON in markdown code fences.
 
-INDEX ADVANCEMENT:
-After testing all checks for the current screen, output a JSON object:
-{
-  "current_screen_index": <next screen index to test>,
-  "screens_tested": <number of screens tested so far>,
-  "total_screens": <total number of screens from contracts>,
-  "completed": true if all screens tested, false if more screens remain
-}
-
 Be systematic. Test every check. If something fails to load, record the error and move to the next check. NEVER waste money on retries.
 """
