@@ -21,7 +21,7 @@ from google.adk.sessions import InMemorySessionService
 from google.adk.artifacts import InMemoryArtifactService
 from google.genai import types
 
-from .config import LLM_MODEL, TEST_FILE_PATH, SITE_EMAIL, SITE_PASSWORD, SITE_PASSWORD_FALLBACK, MAX_CHECKS_PER_SCREEN
+from .config import LLM_MODEL, TEST_FILE_PATH, SITE_EMAIL, SITE_PASSWORD, SITE_PASSWORD_FALLBACK, MAX_CHECKS_PER_SCREEN, HEARTBEAT_INTERVAL_SECONDS
 from .prompts.mapper import MAPPER_PROMPT
 from .prompts.contract import CONTRACT_PROMPT
 from .prompts.navigator import NAVIGATOR_PROMPT
@@ -100,6 +100,23 @@ def build_report_agent():
     )
 
 
+def _maybe_print_live(agent_name, event, elapsed):
+    """Print live progress as tool calls stream in, so the console never looks
+    frozen during a long agent run (screen-level results only print at the end)."""
+    if not event.content or not event.content.parts:
+        return
+    for part in event.content.parts:
+        fc = getattr(part, "function_call", None)
+        if fc is None:
+            continue
+        name = fc.name
+        args = fc.args if isinstance(fc.args, dict) else {}
+        if name == "record_evidence":
+            print(f"  [LIVE] {agent_name} | record: {args.get('check_id', '?')} -> {args.get('status', '?')} (t={elapsed:.0f}s)")
+        elif name == "take_screenshot":
+            print(f"  [LIVE] {agent_name} | screenshot: {args.get('check_id', '?')} (t={elapsed:.0f}s)")
+
+
 async def run_agent(runner, session_id, user_id, message, agent_name="agent", timeout_seconds=600):
     """Run a single agent with a timeout and return the events."""
     content = types.Content(
@@ -107,12 +124,28 @@ async def run_agent(runner, session_id, user_id, message, agent_name="agent", ti
     )
     events = []
     start = time.monotonic()
+    last_event_ts = {"ts": start}
+
+    # Idle heartbeat: fire only when nothing has arrived for a while, so the
+    # console confirms liveness during long silent stretches. A background task
+    # avoids interrupting ADK's event generator with wait_for/cancellation.
+    async def _idle_watcher():
+        while True:
+            await asyncio.sleep(HEARTBEAT_INTERVAL_SECONDS)
+            if time.monotonic() - last_event_ts["ts"] > HEARTBEAT_INTERVAL_SECONDS:
+                print(f"  [HEARTBEAT] {agent_name} still working "
+                      f"(t={time.monotonic() - start:.0f}s, {len(events)} events, "
+                      f"{count_tool_calls(events)} tool calls)...")
+
+    watcher = asyncio.create_task(_idle_watcher())
     try:
         async def _run():
             async for event in runner.run_async(
                 user_id=user_id, session_id=session_id, new_message=content
             ):
                 events.append(event)
+                last_event_ts["ts"] = time.monotonic()
+                _maybe_print_live(agent_name, event, last_event_ts["ts"] - start)
         await asyncio.wait_for(_run(), timeout=timeout_seconds)
     except asyncio.TimeoutError:
         print(f"  [TIMEOUT] {agent_name} exceeded {timeout_seconds}s limit. Using partial results.")
@@ -121,6 +154,8 @@ async def run_agent(runner, session_id, user_id, message, agent_name="agent", ti
         if len(err_str) > 200:
             err_str = err_str[:200] + "..."
         print(f"  [ERROR] {agent_name} failed: {err_str}")
+    finally:
+        watcher.cancel()
     elapsed = time.monotonic() - start
     print(f"  [TIME] {agent_name} took {elapsed:.1f}s ({len(events)} events, {count_tool_calls(events)} tool calls)")
     return events
