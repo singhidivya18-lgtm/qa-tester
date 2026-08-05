@@ -317,7 +317,7 @@ async def pipeline_main(repo_url, site_url, test_file_path=None, max_screens=MAX
     print("=" * 60)
     print("QA PIPELINE - Deterministic Execution")
     print("=" * 60)
-    print(f"Repo: {repo_url}")
+    print(f"Repo: {repo_url or 'none (black-box, site URL only)'}")
     print(f"Site: {site_url}")
     print(f"Test file: {test_file_path or 'None'}")
     print(f"Max screens: {max_screens}")
@@ -673,7 +673,8 @@ async def pipeline_main(repo_url, site_url, test_file_path=None, max_screens=MAX
 
 def main():
     parser = argparse.ArgumentParser(description="Run QA pipeline deterministically")
-    parser.add_argument("--repo-url", required=True, help="GitHub repository URL")
+    parser.add_argument("--repo-url", default=None,
+                        help="GitHub repository URL (omit for black-box testing with only --site-url)")
     parser.add_argument("--site-url", required=True, help="Deployed site URL")
     parser.add_argument("--test-file", default=None, help="File path for upload testing")
     parser.add_argument("--max-screens", type=int, default=MAX_SCREENS,

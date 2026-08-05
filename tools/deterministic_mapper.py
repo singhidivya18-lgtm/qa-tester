@@ -1,16 +1,56 @@
-"""Deterministic mapper — builds screen map from repo analysis without LLM."""
+"""Deterministic mapper — builds screen map from repo analysis without LLM.
+
+When no repository is available (black-box testing against a live site only),
+a fallback screen map of common routes is returned; the navigator verifies
+each route live and records what actually exists.
+"""
 
 import json
 import os
 import re
 from typing import Any
 
+FALLBACK_ROUTES = [
+    ("/", "HomePage"),
+    ("/login", "LoginPage"),
+    ("/register", "RegisterPage"),
+    ("/cart", "CartPage"),
+]
+
+
+def _fallback_screen_map(site_url: str) -> dict:
+    """Build a screen map from the site URL alone (no repository analysis)."""
+    screens = []
+    for i, (route, name) in enumerate(FALLBACK_ROUTES):
+        screens.append({
+            "screen_id": f"screen_{i}",
+            "component_path": "unknown (no repo)",
+            "route_path": route,
+            "component_name": name,
+            "imports": [],
+            "has_form": route in ("/", "/login", "/register"),
+            "has_navigation": True,
+            "nav_targets": [],
+            "description": f"{name} at {site_url}{route} (black-box: no repository analysis)",
+        })
+    return {
+        "screens": screens,
+        "navigation_graph": [],
+        "entry_points": ["screen_0"],
+    }
+
 
 def deterministic_mapper(repo_url: str, site_url: str) -> dict:
     """Clone repo and build screen map using Python analysis (no LLM).
 
+    If repo_url is empty/None, falls back to a black-box screen map built
+    from common routes, verified live by the navigator.
+
     Returns a screen_map dict with screens, navigation_graph, entry_points.
     """
+    if not repo_url or not str(repo_url).strip():
+        return _fallback_screen_map(site_url)
+
     from .repo_analyzer import clone_repo, grep_routes, list_src
     from .route_parser import parse_route_config
     from .component_reader import read_components
