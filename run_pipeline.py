@@ -14,6 +14,7 @@ import json
 import sys
 import os
 import time
+from datetime import datetime
 
 from google.adk.workflow import Workflow, FunctionNode, START
 from google.adk.runners import Runner
@@ -626,6 +627,22 @@ async def pipeline_main(repo_url, site_url, test_file_path=None, max_screens=MAX
         print(f"  [ERROR] DOCX generation failed: {e}")
         docx_path = None
 
+    # ─── PLAIN-TEXT REPORT (for AI consumption) ──────────────
+    # Single-line simple-English format that a fixing AI can parse directly.
+    txt_path = None
+    try:
+        report_text = final_report if isinstance(final_report, str) else json.dumps(final_report, default=str, indent=2)
+        txt_path = os.path.join(
+            os.path.dirname(os.path.abspath(__file__)),
+            f"qa_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt",
+        )
+        with open(txt_path, "w", encoding="utf-8") as f:
+            f.write(report_text)
+        print(f"  TXT Report saved: {txt_path}")
+    except Exception as e:
+        print(f"  [ERROR] TXT save failed: {e}")
+        txt_path = None
+
     # ─── OUTPUT ──────────────────────────────────────────────────
     print("\n" + "=" * 60)
     print("FINAL REPORT")
@@ -649,6 +666,8 @@ async def pipeline_main(repo_url, site_url, test_file_path=None, max_screens=MAX
     print(f"Total pipeline time: {total_elapsed / 60:.1f} minutes")
     if docx_path:
         print(f"DOCX Report: {docx_path}")
+    if txt_path:
+        print(f"TXT Report (for AI): {txt_path}")
     print(f"{'=' * 60}")
 
 

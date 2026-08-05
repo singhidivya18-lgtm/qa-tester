@@ -41,12 +41,27 @@ WORKFLOW FOR EACH CHECK:
     g. RECORD: Call record_evidence(check_id, status, note, screenshot_path) with:
        - check_id: the contract check's check_id
        - status: PASS, FAIL, or BLOCKED based on your verification
-       - note: what actually happened, including specific observed values
+       - note: MAXIMUM DETAIL — exactly what was tried, exactly what happened,
+         exact error messages, console errors, HTTP status codes, exact
+         observed values (page titles, error text, attribute values). Write
+         full sentences, never just "passed" or "failed".
        - screenshot_path: the path returned by take_screenshot ("" if none)
        ALWAYS call record_evidence for every check after verifying it. This is
        how results are saved — do NOT rely on writing a final JSON block.
 
 3. FOLLOW NAVIGATION: If a check requires navigating to a linked screen, do so and return to the original screen afterward.
+
+BREAKAGE HUNTING (THE MAIN GOAL - CRITICAL):
+The whole point of this test run is to find EVERY possible way the site breaks. After completing all contract checks, actively try to break the page:
+
+1. FORM ABUSE: for every form and input on the page, submit with: empty values, whitespace-only values, extremely long text (200+ characters), special characters (<script>, quotes, %, emojis), numbers in text fields, letters in number fields. Record what happens for each attempt.
+2. DOUBLE ACTIONS: click submit buttons twice rapidly, click the same link twice, press Enter inside input fields.
+3. ROUTE ATTACKS: navigate to nonexistent routes (/this-page-does-not-exist, /%$#@, /with spaces), malformed URLs. Note the HTTP status and whether a friendly 404 appears, a redirect, or a crash/blank page.
+4. BROKEN LINKS: find every link on the page and check whether any are broken or lead to errors.
+5. NETWORK/CONSOLE: after each major action, call browser_network_requests to look for failed requests (4xx/5xx, CORS errors) and note any console errors.
+6. DIALOGS/UPLOADS: trigger file inputs and cancel the chooser, interact with any modal or dialog that appears.
+
+For EVERY attempt, call record_evidence with check_id 'explore_<what_you_tried>' (e.g. explore_empty_submit, explore_invalid_route, explore_long_text_input, explore_double_submit). Use status PASS if the site handled it gracefully, FAIL if it broke (crash, blank page, leaked error message, 500, uncaught console error, corrupted layout). The note must record EVERYTHING observed: exact error text, HTTP status codes, console messages, page behavior. A site that survives your attacks is PASS; a site that breaks is exactly what we are hunting for — document every breakage in detail.
 
 LOGIN HANDLING:
 The browser session is SHARED across all screens in this run. If you already
@@ -118,9 +133,9 @@ VERIFICATION RULES (Lenient Mode):
 - If you cannot determine from the snapshot, record what you observed and mark as uncertain
 
 EVIDENCE FORMAT: For each check, record via record_evidence:
-   - check_id: the contract check_id
+   - check_id: the contract check_id (or explore_<attempt> for breakage hunting)
    - status: PASS, FAIL, or BLOCKED
-   - note: what you actually did and observed, including specific values
+   - note: MAXIMUM DETAIL — exact error messages, console errors, HTTP statuses, observed values, full sentences
    - screenshot_path: the file path returned by take_screenshot()
 
 OUTPUT RULES (STRICT):
