@@ -298,8 +298,44 @@ def evidence_to_verdicts(evidence, screen_id):
             "verdict": item.get("status", "BLOCKED"),
             "reason": item.get("note", ""),
             "screen_id": screen_id,
+            "screenshot_path": item.get("screenshot_path", ""),
         })
     return verdicts
+
+
+def render_per_check_lines(all_screen_results):
+    """Deterministically render one line per check — the AI-readable report body.
+
+    The full per-check detail already exists in all_screen_results (verdict +
+    reason + screenshot path). Rendering it here never depends on the LLM, so
+    the TXT report is always complete even if the report model misbehaves.
+    """
+    total_checks = 0
+    passed = failed = blocked = 0
+    lines = []
+    for r in all_screen_results:
+        screen_id = r.get("screen_id", "?")
+        route = r.get("route", "/")
+        for v in r.get("verdicts", []):
+            if not isinstance(v, dict):
+                continue
+            verdict = v.get("verdict", "BLOCKED")
+            detail = (v.get("reason") or "").strip().replace("\n", " ")
+            screenshot = v.get("screenshot_path", "")
+            lines.append(
+                f"screen: {screen_id} | route: {route} | check: {v.get('check_id', '?')} "
+                f"| verdict: {verdict} | detail: {detail or 'no detail recorded'} "
+                f"| screenshot: {screenshot}"
+            )
+            total_checks += 1
+            if verdict == "PASS":
+                passed += 1
+            elif verdict == "FAIL":
+                failed += 1
+            else:
+                blocked += 1
+
+    return lines, total_checks, passed, failed, blocked
 
 
 async def pipeline_main(repo_url, site_url, test_file_path=None, max_screens=MAX_SCREENS):
@@ -579,6 +615,21 @@ async def pipeline_main(repo_url, site_url, test_file_path=None, max_screens=MAX
         else:
             print("  [REGISTER] Registration step produced no confirmation — continuing anyway.")
 
+        # Login + registration results join the report so the fixing AI sees them
+        for name, evidence in (("login", login_evidence), ("register", reg_evidence)):
+            if not evidence:
+                continue
+            verdicts = evidence_to_verdicts(evidence, name)
+            if not verdicts:
+                continue
+            overall = "PASS" if any(v["verdict"] == "PASS" for v in verdicts) else "BLOCKED"
+            all_screen_results.append({
+                "screen_id": name,
+                "route": f"{site_url} ({name} check)",
+                "verdicts": verdicts,
+                "overall": overall,
+            })
+
     finally:
         stop_browser()
 
@@ -591,13 +642,21 @@ async def pipeline_main(repo_url, site_url, test_file_path=None, max_screens=MAX
     )
     all_screen_results_json = json.dumps(all_screen_results, default=str)
     report_msg = (
-        f"Generate a QA report.\n"
-        f"Site URL: {site_url}\n"
-        f"Screen map: {json.dumps(screen_map)}\n"
-        f"All screen results: {all_screen_results_json}\n\n"
-        f"After writing the text report, call generate_docx_report() with:\n"
-        f"- report_text: your full text report\n"
-        f"- all_screen_results_json: the screen results JSON\n"
+        f"Write the QA report narrative for site {site_url}.\n"
+        f"All screen results (per-check verdicts with observed details): {all_screen_results_json}\n\n"
+        f"Your job is ONLY the narrative: a plain-English analysis of the BREAKAGES. "
+        f"Do NOT list every check — the pipeline writes those lines itself. "
+        f"Write exactly two sections, plain text, no tables, no markdown:\n"
+        f"TOP_BREAKAGES:\n"
+        f"- one line per failed check: what was tried, exactly what broke (exact "
+        f"error text, HTTP status, console error), and the page/route it happened on.\n"
+        f"FIX_THIS_FIRST:\n"
+        f"- one line per recommendation, most severe first, with a concrete fix "
+        f"suggestion (e.g. sanitize input on the search form, add try/catch in X).\n"
+        f"If there are zero failures, write: TOP_BREAKAGES: none found.\n\n"
+        f"Then call generate_docx_report() with:\n"
+        f"- report_text: your analysis text\n"
+        f"- all_screen_results_json: the screen results JSON (pass it through unchanged)\n"
         f"- site_url: {site_url}\n"
         f"- screenshots_dir: '{SCREENSHOT_DIR}'\n"
         f"- output_dir: report directory"
@@ -614,10 +673,22 @@ async def pipeline_main(repo_url, site_url, test_file_path=None, max_screens=MAX
     if not final_report:
         final_report = extract_text(events)
 
+    # Deterministic per-check lines (never depends on the LLM)
+    per_check_lines, total_checks, passed, failed, blocked = render_per_check_lines(all_screen_results)
+    summary_block = [
+        f"total_screens_tested: {len(all_screen_results)}",
+        f"total_checks_run: {total_checks}",
+        f"results: PASS={passed} FAIL={failed} BLOCKED={blocked}",
+    ]
+    narrative = final_report if isinstance(final_report, str) else json.dumps(final_report, default=str)
+    ai_report_text = "\n".join(summary_block) + "\n\n" + "\n".join(per_check_lines) + "\n\n" + narrative.strip()
+
     # ─── DOCX REPORT ──────────────────────────────────────────
+    # Narrative text in the DOCX; per-check verdicts are rendered as tables
+    # and screenshot captions inside docx_report.py (deterministic).
     try:
         docx_path = generate_docx_report(
-            report_text=final_report if isinstance(final_report, str) else json.dumps(final_report, default=str),
+            report_text=narrative,
             all_screen_results_json=all_screen_results_json,
             site_url=site_url,
             screenshots_dir=SCREENSHOT_DIR,
@@ -628,16 +699,15 @@ async def pipeline_main(repo_url, site_url, test_file_path=None, max_screens=MAX
         docx_path = None
 
     # ─── PLAIN-TEXT REPORT (for AI consumption) ──────────────
-    # Single-line simple-English format that a fixing AI can parse directly.
+    # Deterministic per-check lines + LLM narrative — complete every run.
     txt_path = None
     try:
-        report_text = final_report if isinstance(final_report, str) else json.dumps(final_report, default=str, indent=2)
         txt_path = os.path.join(
             os.path.dirname(os.path.abspath(__file__)),
             f"qa_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt",
         )
         with open(txt_path, "w", encoding="utf-8") as f:
-            f.write(report_text)
+            f.write(ai_report_text)
         print(f"  TXT Report saved: {txt_path}")
     except Exception as e:
         print(f"  [ERROR] TXT save failed: {e}")

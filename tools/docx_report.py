@@ -116,6 +116,7 @@ def generate_docx_report(report_text, all_screen_results_json="[]", site_url="",
             _apply_inline_formatting(p, stripped)
 
     doc.add_page_break()
+    _add_results_section(doc, screen_results)
     doc.add_heading("Screenshots", level=1)
     _add_screenshots_section(doc, screen_results, screenshots_dir)
 
@@ -128,8 +129,47 @@ def generate_docx_report(report_text, all_screen_results_json="[]", site_url="",
     return filepath
 
 
+def _add_results_section(doc, screen_results):
+    """Per-screen verdict table — always built from the results JSON (deterministic)."""
+    if not screen_results:
+        doc.add_paragraph("No check results recorded for any screen.")
+        return
+    for r in screen_results:
+        if not isinstance(r, dict):
+            continue
+        sid = r.get("screen_id", "?")
+        overall = r.get("overall", "?")
+        route = r.get("route", "")
+        doc.add_heading(f"Screen: {sid} — Overall: {overall}", level=2)
+        if route:
+            doc.add_paragraph(f"Route: {route}")
+        verdicts = r.get("verdicts", [])
+        if not verdicts:
+            doc.add_paragraph("No verdicts recorded for this screen.")
+            continue
+        try:
+            table = doc.add_table(rows=1, cols=4)
+            table.style = "Table Grid"
+        except Exception:
+            table = doc.add_table(rows=1, cols=4)
+        hdr = table.rows[0].cells
+        for i, h in enumerate(("Check", "Verdict", "Detail", "Screenshot")):
+            hdr[i].text = h
+        for v in verdicts:
+            if not isinstance(v, dict):
+                continue
+            verdict = v.get("verdict", "?")
+            label = "BROKEN" if verdict == "FAIL" else verdict
+            row = table.add_row().cells
+            row[0].text = str(v.get("check_id", "?"))
+            row[1].text = label
+            row[2].text = (v.get("reason") or "")[:400]
+            row[3].text = os.path.basename(v.get("screenshot_path", ""))
+        doc.add_paragraph()
+
+
 def _add_screenshots_section(doc, screen_results, screenshots_dir):
-    """Embed screenshots for each screen in the document."""
+    """Embed screenshots for each screen with a verdict caption above each."""
     if not os.path.isdir(screenshots_dir):
         doc.add_paragraph("No screenshots directory found — screenshots were not saved during testing.")
         return
@@ -143,42 +183,51 @@ def _add_screenshots_section(doc, screen_results, screenshots_dir):
         doc.add_paragraph("No screenshots were captured during testing.")
         return
 
-    screen_ids_in_results = set()
+    # Lookup: screenshot basename -> (screen_id, verdict) so each image gets a caption
+    by_path = {}
     for r in screen_results:
-        if isinstance(r, dict):
-            screen_ids_in_results.add(r.get("screen_id", ""))
+        if not isinstance(r, dict):
+            continue
+        for v in r.get("verdicts", []):
+            if isinstance(v, dict) and v.get("screenshot_path"):
+                by_path[os.path.basename(v["screenshot_path"])] = (r.get("screen_id", "?"), v)
 
-    grouped = {}
-    for sf in screenshot_files:
-        parts = sf.replace(".png", "").split("_")
-        if len(parts) >= 2:
-            sid = parts[0] + "_" + parts[1]
-            grouped.setdefault(sid, []).append(sf)
+    # Group screenshots per screen (verdict screen_id when matched, else filename prefix)
+    groups = {}
+    for fname in screenshot_files:
+        info = by_path.get(fname)
+        if info:
+            sid = info[0]
         else:
-            grouped.setdefault("other", []).append(sf)
+            parts = fname.replace(".png", "").split("_")
+            sid = parts[0] + "_" + parts[1] if len(parts) >= 2 else "other"
+        groups.setdefault(sid, []).append(fname)
 
-    for screen_id, files in sorted(grouped.items()):
-        if screen_id != "other":
-            heading_text = f"Screen: {screen_id}"
-        else:
-            heading_text = "General screenshots"
-        doc.add_heading(heading_text, level=2)
+    TITLES = {"login": "Login", "register": "Registration"}
+    for sid, files in sorted(groups.items()):
+        doc.add_heading(TITLES.get(sid, f"Screen: {sid}"), level=2)
 
         for fname in files[:4]:
             fpath = os.path.join(screenshots_dir, fname)
-            if os.path.exists(fpath):
-                try:
-                    p = doc.add_paragraph()
-                    p_run = p.add_run(f"{fname}")
-                    p_run.font.size = Pt(8)
-                    p_run.font.color.rgb = RGBColor(100, 100, 100)
-                    doc.add_picture(fpath, width=Inches(5.5))
-                except Exception:
-                    doc.add_paragraph(f"[Could not embed: {fname}]")
-            if len(files) > 4:
-                remaining = len(files) - 4
-                doc.add_paragraph(f"(+ {remaining} more screenshots for this screen)")
-                break
+            info = by_path.get(fname)
+            if info:
+                _, v = info
+                label = "BROKEN" if v.get("verdict") == "FAIL" else v.get("verdict", "?")
+                reason = (v.get("reason") or "").strip()[:300]
+                caption = f"{v.get('check_id', '?')} — {label} — {reason}"
+            else:
+                caption = f"{fname} — no verdict recorded for this screenshot"
+            p = doc.add_paragraph()
+            p_run = p.add_run(caption)
+            p_run.font.size = Pt(9)
+            p_run.bold = True
+            try:
+                doc.add_picture(fpath, width=Inches(5.5))
+            except Exception:
+                doc.add_paragraph(f"[Could not embed: {fname}]")
+
+        if len(files) > 4:
+            doc.add_paragraph(f"(+ {len(files) - 4} more screenshots for this screen)")
 
 
 def _clean_markdown(text):
